@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GOLDRIX</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #07110d;
+      color: #f3f7f4;
+      padding: 14px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    .logo {
+      color: #f6c445;
+      font-size: 25px;
+      font-weight: bold;
+      letter-spacing: 2px;
+    }
+
+    .online {
+      background: #14251c;
+      color: #7df0a5;
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+    }
+
+    .profile {
+      background: linear-gradient(135deg, #173d29, #10251b);
+      border: 1px solid #315b3e;
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 15px;
+    }
+
+    .player-name {
+      font-size: 19px;
+      font-weight: bold;
+      margin-bottom: 14px;
+    }
+
+    .balances {
+      display: flex;
+      gap: 10px;
+    }
+
+    .balance {
+      flex: 1;
+      background: #07130c;
+      border-radius: 12px;
+      padding: 12px;
+      color: #f6c445;
+      font-weight: bold;
+    }
+
+    .balance small {
+      display: block;
+      color: #b9c8bd;
+      margin-bottom: 5px;
+      font-size: 12px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      margin: 20px 0 12px;
+    }
+
+    .menu {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 14px 10px;
+      font-size: 15px;
+      font-weight: bold;
+      color: white;
+      background: #173c28;
+      cursor: pointer;
+    }
+
+    button:active {
+      transform: scale(.98);
+    }
+
+    .gold-button {
+      background: #b88619;
+      color: #111;
+    }
+
+    .panel {
+      background: #101d16;
+      border: 1px solid #263d2e;
+      border-radius: 14px;
+      padding: 14px;
+      margin-top: 12px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .chat-messages {
+      height: 220px;
+      overflow-y: auto;
+      background: #08120c;
+      border-radius: 10px;
+      padding: 10px;
+      margin: 10px 0;
+    }
+
+    .chat-message {
+      margin-bottom: 10px;
+      overflow-wrap: anywhere;
+    }
+
+    .chat-message strong {
+      color: #f6c445;
+    }
+
+    .chat-input-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    input {
+      min-width: 0;
+      flex: 1;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid #34483a;
+      background: #07110d;
+      color: white;
+      font-size: 14px;
+    }
+
+    .chat-input-row button {
+      padding: 12px;
+      background: #287a43;
+    }
+
+    .player-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 9px 0;
+      border-bottom: 1px solid #26382c;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin: 15px 0;
+    }
+
+    .cell {
+      aspect-ratio: 1;
+      background: #1c3827;
+      font-size: 38px;
+      color: #f6c445;
+    }
+
+    .muted {
+      color: #aab8ae;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .notice {
+      color: #f6c445;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+
+    .full-button {
+      width: 100%;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <div class="logo">🌿 GOLDRIX</div>
+    <div class="online">🟢 Online: <span id="online">0</span></div>
+  </div>
+
+  <div class="profile">
+    <div class="player-name">👤 <span id="playerName">O'yinchi</span></div>
+
+    <div class="balances">
+      <div class="balance">
+        <small>🪙 OLTIN TANGA</small>
+        <span id="coins">20</span>
+      </div>
+      <div class="balance">
+        <small>💎 OLMOS</small>
+        <span id="diamonds">0</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="menu">
+    <button onclick="showPanel('games')">🎮 O'ynash</button>
+    <button onclick="showPanel('tasks')">📋 Vazifalar</button>
+    <button onclick="showPanel('chat')">💬 Umumiy chat</button>
+    <button onclick="showPanel('ranking')">🏆 Reyting</button>
+    <button onclick="showPanel('shop')">🛒 Do'kon</button>
+    <button onclick="showPanel('level')">⭐ Daraja</button>
+  </div>
+
+  <div id="games" class="panel hidden">
+    <h3>🎮 O'yinlar</h3>
+    <button class="full-button" onclick="startXO()">❌ X-O o'yini</button>
+    <button class="full-button" onclick="showCheckers()">⚫ Shashka</button>
+    <div id="xoGame" class="hidden">
+      <p id="xoStatus" class="notice">Siz: X | Kompyuter: O</p>
+      <div class="board" id="xoBoard"></div>
+      <button class="full-button" onclick="startXO()">🔄 Qayta boshlash</button>
+    </div>
+    <div id="checkersInfo" class="notice hidden">
+      Shashka o'yini keyingi versiyada qo'shiladi.
+    </div>
+  </div>
+
+  <div id="tasks" class="panel hidden">
+    <h3>📋 Kunlik vazifa</h3>
+    <p class="muted">Kunlik mukofot: 5 ta oltin tanga.</p>
+    <button class="gold-button full-button" onclick="claimTask()">
+      🎁 Mukofotni olish
+    </button>
+    <p id="taskNotice" class="notice"></p>
+  </div>
+
+  <div id="chat" class="panel hidden">
+    <h3>💬 Umumiy chat</h3>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-row">
+      <input id="chatInput" maxlength="500" placeholder="Xabar yozing...">
+      <button onclick="sendChat()">Yuborish</button>
+    </div>
+    <p id="chatNotice" class="notice"></p>
+  </div>
+
+  <div id="ranking" class="panel hidden">
+    <h3>🏆 Reyting</h3>
+    <div id="rankingList" class="muted">Ma'lumot yuklanmoqda...</div>
+  </div>
+
+  <div id="shop" class="panel hidden">
+    <h3>🛒 Do'kon</h3>
+    <p class="muted">Do'kon bo'limi hozircha tayyorlanmoqda.</p>
+  </div>
+
+  <div id="level" class="panel hidden">
+    <h3>⭐ Daraja</h3>
+    <p>Daraja: <strong id="levelValue">1</strong></p>
+    <p class="muted">G'alabalar: <span id="wins">0</span></p>
+  </div>
+
+  <p class="muted" style="text-align:center;margin:20px 0">
+    GOLDRIX © 2026
+  </p>
+
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.ready();
+  tg.expand();
+
+  const initData = tg.initData || "";
+
+  function showPanel(id) {
+    document.querySelectorAll(".panel").forEach(panel => {
+      panel.classList.add("hidden");
+    });
+
+    const panel = document.getElementById(id);
+    if (panel) panel.classList.remove("hidden");
+  }
+
+  async function api(url, method = "GET", body = null) {
+    const options = {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Telegram-Init-Data": initData
+      }
+    };
+
+    if (body) options.body = JSON.stringify(body);
+
+    const response = await fetch(url, options);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Xatolik yuz berdi");
+    }
+
+    return data;
+  }
+
+  async function loadState() {
+    try {
+      const data = await api("/api/state");
+
+      document.getElementById("playerName").textContent =
+        data.user.name || "O'yinchi";
+
+      document.getElementById("coins").textContent =
+        data.user.coins ?? 0;
+
+      document.getElementById("diamonds").textContent =
+        data.user.diamonds ?? 0;
+
+      document.getElementById("online").textContent =
+        data.online ?? 0;
+
+      document.getElementById("levelValue").textContent =
+        data.user.level ?? 1;
+
+      document.getElementById("wins").textContent =
+        data.user.wins ?? 0;
+
+      renderMessages(data.messages || []);
+      renderRanking(data.ranking || []);
+    } catch (error) {
+      document.getElementById("playerName").textContent =
+        "Telegram ichidan oching";
+      console.log(error);
+    }
+  }
+
+  function renderMessages(messages) {
+    const box = document.getElementById("chatMessages");
+    box.innerHTML = "";
+
+    messages.forEach(message => {
+      const row = document.createElement("div");
+      row.className = "chat-message";
+
+      const name = document.createElement("strong");
+      name.textContent = message.name + ": ";
+
+      const text = document.createElement("span");
+      text.textContent = message.text;
+
+      row.appendChild(name);
+      row.appendChild(text);
+      box.appendChild(row);
+    });
+
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function renderRanking(players) {
+    const box = document.getElementById("rankingList");
+    box.innerHTML = "";
+
+    if (!players.length) {
+      box.textContent = "Hozircha reyting bo'sh.";
+      return;
+    }
+
+    players.forEach((player, index) => {
+      const row = document.createElement("div");
+      row.className = "player-row";
+
+      const name = document.createElement("span");
+      name.textContent = `${index + 1}. ${player.first_name}`;
+
+      const score = document.createElement("span");
+      score.textContent = `🏆 ${player.wins} | 🪙 ${player.coins}`;
+
+      row.appendChild(name);
+      row.appendChild(score);
+      box.appendChild(row);
+    });
+  }
+
+  async function sendChat() {
+    const input = document.getElementById("chatInput");
+    const notice = document.getElementById("chatNotice");
+    const text = input.value.trim();
+
+    if (!text) return;
+
+    try {
+      await api("/api/chat", "POST", { text });
+      input.value = "";
+      notice.textContent = "Xabar yuborildi.";
+      await loadState();
+    } catch (error) {
+      notice.textContent = error.message;
+    }
+  }
+
+  async function claimTask() {
+    const notice = document.getElementById("taskNotice");
+
+    try {
+      const result = await api("/api/task", "POST", {});
+      notice.textContent = `🎉 ${result.reward} ta tanga olindi!`;
+      await loadState();
+    } catch (error) {
+      notice.textContent = error.message;
+    }
+  }
+
+  // X-O: oddiy mahalliy kompyuter raqibiga qarshi
+  let xoCells = Array(9).fill("");
+  let xoFinished = false;
+
+  function startXO() {
+    showPanel("games");
+    document.getElementById("xoGame").classList.remove("hidden");
+    document.getElementById("checkersInfo").classList.add("hidden");
+
+    xoCells = Array(9).fill("");
+    xoFinished = false;
+
+    document.getElementById("xoStatus").textContent =
+      "Siz X bilan boshlaysiz.";
+
+    drawXO();
+  }
+
+  function drawXO() {
+    const board = document.getElementById("xoBoard");
+    board.innerHTML = "";
+
+    xoCells.forEach((value, index) => {
+      const cell = document.createElement("button");
+      cell.className = "cell";
+      cell.textContent = value;
+      cell.onclick = () => playerMove(index);
+      board.appendChild(cell);
+    });
+  }
+
+  function winner(cells) {
+    const lines = [
+      [0,1,2],[3,4,5],[6,7,8],
+      [0,3,6],[1,4,7],[2,5,8],
+      [0,4,8],[2,4,6]
+    ];
+
+    for (const line of lines) {
+      const [a,b,c] = line;
+      if (cells[a] && cells[a] === cells[b] && cells[a] === cells[c]) {
+        return cells[a];
+      }
+    }
+
+    return cells.every(Boolean) ? "draw" : null;
+  }
+
+  function playerMove(index) {
+    if (xoFinished || xoCells[index]) return;
+
+    xoCells[index] = "X";
+
+    let result = winner(xoCells);
+    if (result) {
+      finishXO(result);
+      return;
+    }
+
+    const empty = xoCells
+      .map((value, i) => value ? null : i)
+      .filter(value => value !== null);
+
+    if (empty.length) {
+      const move = empty[Math.floor(Math.random() * empty.length)];
+      xoCells[move] = "O";
+    }
+
+    result = winner(xoCells);
+    drawXO();
+
+    if (result) finishXO(result);
+  }
+
+  function finishXO(result) {
+    xoFinished = true;
+    drawXO();
+
+    const status = document.getElementById("xoStatus");
+
+    if (result === "X") {
+      status.textContent = "🎉 Siz yutdingiz!";
+    } else if (result === "O") {
+      status.textContent = "Kompyuter yutdi.";
+    } else {
+      status.textContent = "Durrang!";
+    }
+  }
+
+  function showCheckers() {
+    showPanel("games");
+    document.getElementById("xoGame").classList.add("hidden");
+    document.getElementById("checkersInfo").classList.remove("hidden");
+  }
+
+  loadState();
+
+  // Ma'lumotlarni va online holatini vaqti-vaqti bilan yangilash
+  setInterval(loadState, 15000);
+</script>
+</body>
+  </html>
