@@ -1,0 +1,606 @@
+import os
+import time
+import hmac
+import hashlib
+import json
+import sqlite3
+import asyncio
+import threading
+import logging
+
+from urllib.parse import parse_qsl
+from flask import Flask, request, jsonify, send_from_directory
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    WebAppInfo,
+)
+
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+)
+
+# =====================================
+# LOG SOZLAMALARI
+# =====================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+# =====================================
+# SOZLAMALAR
+# =====================================
+
+TOKEN = os.getenv("BOT_TOKEN", "").strip()
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or 0)
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip().rstrip("/")
+PORT = int(os.getenv("PORT", "10000"))
+DB = os.getenv("DB_PATH", "goldrix.db")
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+
+web = Flask(__name__)
+
+# =====================================
+# MA'LUMOTLAR BAZASI
+# =====================================
+
+def conn():
+    c = sqlite3.connect(DB, timeout=15)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def init_db():
+    with conn() as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                coins INTEGER DEFAULT 20,
+                diamonds INTEGER DEFAULT 0,
+                wins INTEGER DEFAULT 0,
+                level INTEGER DEFAULT 1,
+                last_seen INTEGER DEFAULT 0,
+                blocked INTEGER DEFAULT 0
+            )
+        """)
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                name TEXT,
+                text TEXT,
+                created_at INTEGER
+            )
+        """)
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                user_id INTEGER,
+                task TEXT,
+                completed INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, task)
+            )
+        """)
+
+    logging.info("GOLDRIX ma'lumotlar bazasi tayyor.")
+
+
+def touch(uid, username="", name="O'yinchi"):
+    with conn() as c:
+        c.execute("""
+            INSERT INTO users (
+                user_id, username, first_name, last_seen
+            )
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                username = excluded.username,
+                first_name = excluded.first_name,
+                last_seen = excluded.last_seen
+        """, (
+            uid,
+            username or "",
+            name or "O'yinchi",
+            int(time.time())
+        ))
+
+
+# =====================================
+# TELEGRAM MINI APP TEKSHIRUVI
+# =====================================
+
+def verify(data):
+    if not TOKEN or not data:
+        return None
+
+    try:
+        params = dict(parse_qsl(data, keep_blank_values=True))
+        received_hash = params.pop("hash", None)
+
+        if not received_hash:
+            return None
+
+        check_string = "\n".join(
+            f"{key}={value}"
+            for key, value in sorted(params.items())
+        )
+
+        secret_key = hmac.new(
+            b"WebAppData",
+            TOKEN.encode(),
+            hashlib.sha256
+        ).digest()
+
+        calculated_hash = hmac.new(
+            secret_key,
+            check_string.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(calculated_hash, received_hash):
+            return None
+
+        auth_date = int(params.get("auth_date", "0"))
+
+        if time.time() - auth_date > 86400:
+            return None
+
+        user = json.loads(params.get("user", "{}"))
+
+        if not user.get("id"):
+            return None
+
+        return user
+
+    except Exception:
+        logging.exception("Mini App tekshiruvida xato")
+        return None
+
+
+def current_user():
+    user_data = verify(
+        request.headers.get("X-Telegram-Init-Data", "")
+    )
+
+    if not user_data:
+        return None
+
+    uid = int(user_data["id"])
+
+    touch(
+        uid,
+        user_data.get("username", ""),
+        user_data.get("first_name", "O'yinchi")
+    )
+
+    with conn() as c:
+        user = c.execute(
+            "SELECT * FROM users WHERE user_id = ?",
+            (uid,)
+        ).fetchone()
+
+    if not user or user["blocked"]:
+        return None
+
+    return user
+
+
+# =====================================
+# FLASK SAHIFALARI
+# =====================================
+
+@web.route("/")
+def home():
+    index_path = os.path.join(ROOT, "index.html")
+
+    if not os.path.isfile(index_path):
+        return (
+            "GOLDRIX server ishlayapti, lekin index.html topilmadi.",
+            404
+        )
+
+    return send_from_directory(ROOT, "index.html")
+
+
+@web.route("/health")
+def health():
+    return jsonify(
+        ok=True,
+        service="GOLDRIX"
+    )
+
+
+# =====================================
+# FOYDALANUVCHI MA'LUMOTLARI
+# =====================================
+
+@web.route("/api/state", methods=["GET"])
+def state():
+    user = current_user()
+
+    if not user:
+        return jsonify(
+            error="Mini Appni Telegram ichidan oching."
+        ), 401
+
+    with conn() as c:
+        online = c.execute("""
+            SELECT COUNT(*)
+            FROM users
+            WHERE last_seen > ?
+        """, (
+            int(time.time()) - 120,
+        )).fetchone()[0]
+
+        messages = c.execute("""
+            SELECT id, name, text, created_at
+            FROM messages
+            ORDER BY id DESC
+            LIMIT 50
+        """).fetchall()
+
+        ranking = c.execute("""
+            SELECT first_name, coins, wins, level
+            FROM users
+            WHERE blocked = 0
+            ORDER BY wins DESC, coins DESC
+            LIMIT 10
+        """).fetchall()
+
+    return jsonify(
+        user={
+            "id": user["user_id"],
+            "name": user["first_name"],
+            "coins": user["coins"],
+            "diamonds": user["diamonds"],
+            "wins": user["wins"],
+            "level": user["level"],
+        },
+        online=online,
+        messages=[
+            dict(message)
+            for message in reversed(messages)
+        ],
+        ranking=[
+            dict(player)
+            for player in ranking
+        ]
+    )
+
+
+# =====================================
+# UMUMIY CHAT
+# =====================================
+
+@web.route("/api/chat", methods=["POST"])
+def chat():
+    user = current_user()
+
+    if not user:
+        return jsonify(
+            error="Kirish tasdiqlanmadi."
+        ), 401
+
+    data = request.get_json(silent=True) or {}
+    message_text = str(data.get("text", "")).strip()
+
+    if not message_text or len(message_text) > 500:
+        return jsonify(
+            error="Xabar 1–500 belgi bo'lishi kerak."
+        ), 400
+
+    with conn() as c:
+        previous = c.execute("""
+            SELECT created_at
+            FROM messages
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+        """, (
+            user["user_id"],
+        )).fetchone()
+
+        if previous and time.time() - previous["created_at"] < 2:
+            return jsonify(
+                error="Xabar yuborishdan oldin biroz kuting."
+            ), 429
+
+        c.execute("""
+            INSERT INTO messages (
+                user_id, name, text, created_at
+            )
+            VALUES (?, ?, ?, ?)
+        """, (
+            user["user_id"],
+            user["first_name"],
+            message_text,
+            int(time.time())
+        ))
+
+    return jsonify(ok=True)
+
+
+# =====================================
+# KUNLIK VAZIFA
+# =====================================
+
+@web.route("/api/task", methods=["POST"])
+def task():
+    user = current_user()
+
+    if not user:
+        return jsonify(
+            error="Kirish tasdiqlanmadi."
+        ), 401
+
+    with conn() as c:
+        previous = c.execute("""
+            SELECT completed
+            FROM tasks
+            WHERE user_id = ? AND task = 'daily'
+        """, (
+            user["user_id"],
+        )).fetchone()
+
+        if previous and previous["completed"]:
+            return jsonify(
+                error="Kunlik vazifa allaqachon bajarilgan."
+            ), 400
+
+        c.execute("""
+            INSERT OR REPLACE INTO tasks (
+                user_id, task, completed
+            )
+            VALUES (?, 'daily', 1)
+        """)
+
+        c.execute("""
+            UPDATE users
+            SET coins = coins + 5
+            WHERE user_id = ?
+        """, (
+            user["user_id"],
+        ))
+
+    return jsonify(
+        ok=True,
+        reward=5
+    )
+
+
+# =====================================
+# TELEGRAM /START
+# =====================================
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    user = update.effective_user
+    message = update.effective_message
+
+    if not user or not message:
+        return
+
+    touch(
+        user.id,
+        user.username or "",
+        user.first_name or "O'yinchi"
+    )
+
+    keyboard = []
+
+    if WEBAPP_URL.startswith("https://"):
+        keyboard.append([
+            InlineKeyboardButton(
+                "🎮 GOLDRIX'ni ochish",
+                web_app=WebAppInfo(url=WEBAPP_URL)
+            )
+        ])
+
+        text = (
+            "🌿 GOLDRIX PLATFORMASIGA XUSH KELIBSIZ!\n\n"
+            "🪙 Oltin tangalar\n"
+            "💎 Olmoslar\n"
+            "💬 Umumiy chat\n"
+            "🎮 O'yinlar platformasi\n"
+            "🏆 Reyting\n"
+            "📋 Kunlik vazifalar\n\n"
+            "Platformaga kirish uchun pastdagi tugmani bosing."
+        )
+
+    else:
+        text = (
+            "🌿 GOLDRIX BOT ISHLAYAPTI!\n\n"
+            "Botga muvaffaqiyatli ulandingiz. ✅\n\n"
+            "🎮 O'yin platformasini ochish uchun "
+            "WEBAPP_URL sozlamasiga HTTPS manzilini kiriting.\n\n"
+            "📌 /help — yordam\n"
+            "🛠 /admin — admin statistikasi"
+        )
+
+    reply_markup = (
+        InlineKeyboardMarkup(keyboard)
+        if keyboard else None
+    )
+
+    await message.reply_text(
+        text,
+        reply_markup=reply_markup
+    )
+
+
+# =====================================
+# YORDAM
+# =====================================
+
+async def help_cmd(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    message = update.effective_message
+
+    if not message:
+        return
+
+    await message.reply_text(
+        "🌿 GOLDRIX — YORDAM\n\n"
+        "/start — botni ochish\n"
+        "/help — yordam\n"
+        "/admin — admin statistikasi\n\n"
+        "Eslatma: bu versiyada Mini App uchun "
+        "server, foydalanuvchilar bazasi, chat va "
+        "kunlik vazifa API'lari mavjud.\n\n"
+        "Shashka, shaxmat va X-O o'yinlari, "
+        "jonli o'yinlar va raqib qidirish hali "
+        "alohida dasturlanishi kerak.\n\n"
+        "Tangalar hozircha virtual hisob birligidir."
+    )
+
+
+# =====================================
+# ADMIN
+# =====================================
+
+async def admin(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    user = update.effective_user
+    message = update.effective_message
+
+    if not user or not message:
+        return
+
+    if not ADMIN_ID or user.id != ADMIN_ID:
+        await message.reply_text(
+            "⛔ Bu buyruq faqat admin uchun."
+        )
+        return
+
+    with conn() as c:
+        users_count = c.execute(
+            "SELECT COUNT(*) FROM users"
+        ).fetchone()[0]
+
+        messages_count = c.execute(
+            "SELECT COUNT(*) FROM messages"
+        ).fetchone()[0]
+
+        coins_count = c.execute(
+            "SELECT COALESCE(SUM(coins), 0) FROM users"
+        ).fetchone()[0]
+
+        diamonds_count = c.execute(
+            "SELECT COALESCE(SUM(diamonds), 0) FROM users"
+        ).fetchone()[0]
+
+    await message.reply_text(
+        "🛠 GOLDRIX ADMIN PANELI\n\n"
+        f"👥 Foydalanuvchilar: {users_count}\n"
+        f"💬 Chat xabarlari: {messages_count}\n"
+        f"🪙 Jami tangalar: {coins_count}\n"
+        f"💎 Jami olmoslar: {diamonds_count}"
+    )
+
+
+# =====================================
+# TELEGRAM BOT
+# =====================================
+
+async def bot_loop():
+    if not TOKEN:
+        logging.error(
+            "BOT_TOKEN sozlanmagan! "
+            "Bot Telegramga ulanmaydi."
+        )
+        return
+
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .build()
+    )
+
+    application.add_handler(
+        CommandHandler("start", start)
+    )
+
+    application.add_handler(
+        CommandHandler("help", help_cmd)
+    )
+
+    application.add_handler(
+        CommandHandler("admin", admin)
+    )
+
+    try:
+        await application.initialize()
+        await application.start()
+
+        if application.updater is None:
+            raise RuntimeError(
+                "Telegram updater mavjud emas."
+            )
+
+        await application.updater.start_polling(
+            drop_pending_updates=False
+        )
+
+        logging.info("GOLDRIX Telegram bot ishga tushdi!")
+
+        # Bot ishlashda davom etadi.
+        await asyncio.Event().wait()
+
+    finally:
+        if application.updater and application.updater.running:
+            await application.updater.stop()
+
+        if application.running:
+            await application.stop()
+
+        await application.shutdown()
+
+
+def bot_thread():
+    try:
+        asyncio.run(bot_loop())
+
+    except Exception:
+        logging.exception(
+            "TELEGRAM BOTDA XATO YUZ BERDI!"
+        )
+
+
+# =====================================
+# DASTURNI ISHGA TUSHIRISH
+# =====================================
+
+if __name__ == "__main__":
+    init_db()
+
+    thread = threading.Thread(
+        target=bot_thread,
+        name="TelegramBot",
+        daemon=True
+    )
+
+    thread.start()
+
+    logging.info("Flask server ishga tushmoqda...")
+
+    web.run(
+        host="0.0.0.0",
+        port=PORT,
+        debug=False,
+        use_reloader=False
+    )
